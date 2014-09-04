@@ -1,9 +1,21 @@
 #!/usr/bin/env python3
 """
+AnalyzeAntenneAC.py
 
+Parse playlist from web and display last week's most wanted songs.
 
+- Grab available playlists from selector.
+- Fetch playlists using POST requests.
+- Store playlist data to JSON file.
+- Grab occurrence data by tune.
+- Order by occurrence count.
+- Display list plot of N most played items.
 
 """
+
+__author__ = 'ulrich.jansen@rwth-aachen.de'
+__version__ = 0.95
+__date__ = 'Thu 04 Sep 2014'
 
 import json
 import matplotlib.pyplot as plt
@@ -13,10 +25,10 @@ from matplotlib.font_manager import FontProperties
 
 from html.parser import HTMLParser
 
-__author__ = 'ujansen'
-
 
 class SongItem:
+    """ Key in occurrence dict
+    """
     def __init__(self, artist, title):
         self.artist = artist
         self.title = title
@@ -68,11 +80,6 @@ class PlaylistHTMLParser(HTMLParser):
         self.cur_table = []
 
     def handle_starttag(self, tag, attrs):
-        """
-
-        :param tag:
-        :param attrs:
-        """
         if tag == "tr":
             classes = [x for x in attrs
                        if x[0] == 'class' and x[1] in self.tr_classes]
@@ -86,11 +93,6 @@ class PlaylistHTMLParser(HTMLParser):
             self.rec_data = False
 
     def handle_data(self, data):
-        """
-
-        :param data:
-        :raise:
-        """
         if self.rec_data:
             stripped = data.strip(' \n\t').replace('##amp;##', '&')
             if len(stripped) > 0:
@@ -142,12 +144,12 @@ def get_selections(url):
 
 
 def get_playlist_for_day_and_hour(url, day, hour):
-    """
+    """Send post request to web page and parse returned playlist
 
-    :param url:
-    :param day:
-    :param hour:
-    :return:
+    :param url: Selector page
+    :param day: Day option in pl_day selector
+    :param hour: Hour option in pl_hour selector
+    :return: {'day-hour': [[seconds-of-day, title, artist]]}
     """
     print("Getting for %s - %s..." % (day, hour))
     r = requests.post(url, data={'pl_day': day, 'pl_hour': hour})
@@ -227,11 +229,11 @@ def create_occ_list(plain_data):
     """
 
     # collect all available dates and map to integer value
-    map_days = {}
+    my_map_days = {}
     for item in sorted(plain_data, key=lambda i: i[0]):
         day = time.strftime("%m/%d", time.localtime(item[0]))
-        if day not in map_days:
-            map_days[day] = len(map_days)
+        if day not in my_map_days:
+            my_map_days[day] = len(my_map_days)
 
     occ_dict = {}
 
@@ -241,18 +243,21 @@ def create_occ_list(plain_data):
         day_time_str = time.strftime("%H:%M:%S", time.localtime(item[0]))
         day_time = int(day_time_str[:2])*3600 + int(day_time_str[3:5]) * 60 \
             + int(day_time_str[-2:])
-        app_item = [item[0], day_time, map_days[day], day, day_time_str]
+        app_item = [item[0], day_time, my_map_days[day], day, day_time_str]
         if songkey not in occ_dict:
             occ_dict[songkey] = [app_item]
         else:
             occ_dict[songkey].append(app_item)
 
-    return [map_days, occ_dict]
+    return [my_map_days, occ_dict]
 
 
-def plot_occ(occ_list, map_days, num_ent=3):
-    """
+def plot_occ(my_occ_list, my_map_days, num_ent=3):
+    """Plot occurrence list to list plot with legend
 
+    :param my_occ_list: occurrence list from create_occ_list()
+    :param my_map_days: day labels for x axis
+    :param num_ent: display N most wanted songs in plot
     """
 
     fontp = FontProperties()
@@ -260,41 +265,46 @@ def plot_occ(occ_list, map_days, num_ent=3):
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    ax.set_xticks(list(map_days.values()))
-    ax.set_xticklabels(list(map_days.keys()))
+    ax.set_xticks(list(my_map_days.values()))
+    ax.set_xticklabels(list(my_map_days.keys()))
     ax.set_yticks(range(24)[1:])
 
     colors = 'brykmgcw'
     markers = 'sovDp*+x'
 
     for i in range(num_ent):
-        key, val = occ_list[i]
+        key, val = my_occ_list[i]
         x, y = [[], []]
         for item in val:
             x.append(item[2])
             y.append(item[1]/3600.)
         title = key.artist + ' - ' + key.title
+        title = title[:25] + (title[25:] and "..")
         ax.scatter(x, y, c=colors[i % 8], marker=markers[i % 7], s=50,
                    label=title)
+
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width*0.7, box.height])
 
     plt.axis([-0.5, 6.5, 0, 24])
     plt.xlabel('day')
     plt.ylabel('hour of day')
     plt.grid(True)
     plt.title("AntenneAC %d most wanted" % num_ent)
-    plt.legend(scatterpoints=1, loc='lower right', prop=fontp,
-               )
+    plt.legend(scatterpoints=1, loc='center left', prop=fontp,
+               bbox_to_anchor=(1, 0.5))
     plt.show()
 
 
 if __name__ == '__main__':
-    # write_data_to_json_file('/tmp/antenne_ac_data.json')
+    write_data_to_json_file('/tmp/antenne_ac_data.json')
 
     pl_data_in = read_data_from_json_file('/tmp/antenne_ac_data.json')
     pl_data_plain = create_plain_data_table(pl_data_in)
     map_days, occ_list = create_occ_list(pl_data_plain)
 
+    # sort list by length of occurrence table
     occ_list = list(reversed(sorted(occ_list.items(),
                                     key=lambda item: len(item[1]))))
 
-    plot_occ(occ_list, map_days, 5)
+    plot_occ(occ_list, map_days, 10)
